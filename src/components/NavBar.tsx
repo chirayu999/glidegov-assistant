@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link, useLocation } from "react-router-dom";
-import { Menu, X, Home, MessageSquare, LayoutDashboard, User, Globe } from "lucide-react";
+import { Menu, X, Home, MessageSquare, LayoutDashboard, User, Globe, Clock, Shield } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -10,6 +10,8 @@ const navLinks = [
   { to: "/", label: "Home", icon: Home },
   { to: "/chat", label: "My Conversations", icon: MessageSquare },
   { to: "/dashboard", label: "Eligibility Dashboard", icon: LayoutDashboard },
+  { to: "/activity", label: "Activity Hub", icon: Clock },
+  { to: "/vault", label: "My Data Vault", icon: Shield },
 ];
 
 const NavBar = () => {
@@ -46,14 +48,6 @@ const NavBar = () => {
                 {label}
               </Link>
             ))}
-            <Link
-              to="#"
-              onClick={() => setOpen(false)}
-              className="flex items-center gap-3 px-4 py-3 rounded-lg text-lg font-medium hover:bg-accent text-foreground min-h-[48px]"
-            >
-              <User size={22} />
-              My Profile / Vault
-            </Link>
           </div>
         </SheetContent>
       </Sheet>
@@ -77,7 +71,7 @@ const NavBar = () => {
           </SelectContent>
         </Select>
         <Button variant="ghost" size="icon" className="min-w-[48px] min-h-[48px]" asChild>
-          <Link to="#">
+          <Link to="/vault">
             <User size={24} />
           </Link>
         </Button>

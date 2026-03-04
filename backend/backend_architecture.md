@@ -12,12 +12,14 @@ Frontend connects to the API with a `session_id` and subscribes to the session c
 
 ## 2. Models (no PII at rest)
 
-| Model | Purpose | Key attributes |
-|-------|--------|----------------|
-| **Session** | One conversation/visit; pause & resume | `uuid`, `locale`, `last_step`, `status` (active/paused/handoff), `expires_at` |
-| **Scheme** | Cached scheme from discovery | `external_id`, `name`, `source_url`, `domain`, `summary`, `raw_criteria`, `cached_at` |
-| **FormProgress** | Current form state per session + scheme | `session_id`, `scheme_id`, `current_step_index`, `total_steps`, `state` (draft/pending_otp/handoff), `last_activity_at` |
-| **ConversationTurn** | Chat history (no PII) | `session_id`, `role` (user/assistant), `content_text`, `content_type`, `created_at` |
+
+| Model                | Purpose                                 | Key attributes                                                                                                          |
+| -------------------- | --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| **Session**          | One conversation/visit; pause & resume  | `uuid`, `locale`, `last_step`, `status` (active/paused/handoff), `expires_at`                                           |
+| **Scheme**           | Cached scheme from discovery            | `external_id`, `name`, `source_url`, `domain`, `summary`, `raw_criteria`, `cached_at`                                   |
+| **FormProgress**     | Current form state per session + scheme | `session_id`, `scheme_id`, `current_step_index`, `total_steps`, `state` (draft/pending_otp/handoff), `last_activity_at` |
+| **ConversationTurn** | Chat history (no PII)                   | `session_id`, `role` (user/assistant), `content_text`, `content_type`, `created_at`                                     |
+
 
 Session is the main aggregate. Scheme is filled by discovery/eligibility. FormProgress is updated by the form navigation flow and broadcast over ActionCable.
 
@@ -63,13 +65,15 @@ Everything runs in Docker via a single `docker compose up` from the repo root.
 
 ### Services
 
-| Service | Image / Build | Host Port | Container Port | Notes |
-|---------|--------------|-----------|----------------|-------|
-| **mysql** | mysql:8 | 3306 | 3306 | Volume `mysql_data`; healthcheck |
-| **redis** | redis:7-alpine | 6379 | 6379 | Sidekiq + ActionCable; healthcheck |
-| **backend** | `./backend/Dockerfile` | **3001** | 3000 | Rails API + ActionCable; entrypoint waits for MySQL, runs migrations |
-| **sidekiq** | Same image as backend | — | — | `bundle exec sidekiq -C config/sidekiq.yml`; depends on backend + redis |
-| **frontend** | `./frontend/Dockerfile` | **8082** | 8080 | Vite dev server; `VITE_API_URL=http://localhost:3001` |
+
+| Service      | Image / Build           | Host Port | Container Port | Notes                                                                   |
+| ------------ | ----------------------- | --------- | -------------- | ----------------------------------------------------------------------- |
+| **mysql**    | mysql:8                 | 3306      | 3306           | Volume `mysql_data`; healthcheck                                        |
+| **redis**    | redis:7-alpine          | 6379      | 6379           | Sidekiq + ActionCable; healthcheck                                      |
+| **backend**  | `./backend/Dockerfile`  | **3001**  | 3000           | Rails API + ActionCable; entrypoint waits for MySQL, runs migrations    |
+| **sidekiq**  | Same image as backend   | —         | —              | `bundle exec sidekiq -C config/sidekiq.yml`; depends on backend + redis |
+| **frontend** | `./frontend/Dockerfile` | **8082**  | 8080           | Vite dev server; `VITE_API_URL=http://localhost:3001`                   |
+
 
 ### Key files
 
@@ -86,3 +90,4 @@ docker compose up        # builds and starts all services
 # Frontend: http://localhost:8082
 # Backend API: http://localhost:3001
 ```
+

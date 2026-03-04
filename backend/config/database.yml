@@ -1,0 +1,19 @@
+default: &default
+  adapter: mysql2
+  encoding: utf8mb4
+  pool: <%= ENV.fetch("RAILS_MAX_THREADS") { 5 } %>
+  username: root
+  password: <%= ENV.fetch("DB_PASSWORD", "password") %>
+  host: <%= ENV.fetch("DB_HOST", "localhost") %>
+
+development:
+  <<: *default
+  database: govglide_development
+
+test:
+  <<: *default
+  database: govglide_test
+
+production:
+  <<: *default
+  database: govglide_production

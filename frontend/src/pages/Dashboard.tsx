@@ -1,3 +1,4 @@
+import { useNavigate } from "react-router-dom";
 import { CheckCircle2, AlertTriangle, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -5,18 +6,22 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 const schemes = [
   {
     status: "eligible" as const,
+    id: 1,
     name: "Post-Matric Scholarship",
     summary: "Full tuition fee waiver and monthly stipend for students from economically weaker sections pursuing post-matriculation education.",
     action: "Apply using GovGlide",
+    startUrl: "https://scholarships.gov.in",
   },
   {
     status: "action" as const,
+    id: 2,
     name: "AICTE Pragati Scheme",
     summary: "Financial assistance up to ₹50,000 per year for girl students in AICTE-approved institutions.",
     missing: "Family Income Certificate",
   },
   {
     status: "ineligible" as const,
+    id: 3,
     name: "National Merit Scholarship",
     summary: "Scholarship for students scoring above 80% in board examinations.",
     reason: "Requires 80% marks in Class 12 board exams.",
@@ -48,6 +53,12 @@ const statusConfig = {
 };
 
 const Dashboard = () => {
+  const navigate = useNavigate();
+
+  const handleApply = (schemeId: number, startUrl: string) => {
+    navigate(`/autofill?scheme_id=${schemeId}&start_url=${encodeURIComponent(startUrl)}`);
+  };
+
   return (
     <div className="max-w-lg mx-auto px-4 py-6">
       <h1 className="text-2xl font-bold text-foreground mb-6">Your Scheme Matches</h1>
@@ -78,7 +89,10 @@ const Dashboard = () => {
                 <p className="text-base text-muted-foreground leading-relaxed mb-3">{scheme.summary}</p>
 
                 {scheme.status === "eligible" && (
-                  <Button className="w-full min-h-[48px] text-base font-semibold">
+                  <Button
+                    className="w-full min-h-[48px] text-base font-semibold"
+                    onClick={() => handleApply(scheme.id, (scheme as { startUrl?: string }).startUrl || "https://scholarships.gov.in")}
+                  >
                     {scheme.action}
                   </Button>
                 )}

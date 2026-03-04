@@ -9,16 +9,22 @@ class SchemeDiscoveryService
     schemes = results.map do |result|
       external_id = Digest::SHA256.hexdigest(result[:link])[0..15]
 
-      Scheme.find_or_initialize_by(external_id: external_id).tap do |scheme|
-        scheme.assign_attributes(
+      scheme = Scheme.find_or_initialize_by(external_id: external_id).tap do |s|
+        s.assign_attributes(
           name: result[:title],
           source_url: result[:link],
           domain: result[:domain],
           summary: result[:snippet],
           cached_at: Time.current
         )
-        scheme.save!
+        s.save!
       end
+
+      if session.present?
+        SessionDiscovery.find_or_create_by!(session: session, scheme: scheme)
+      end
+
+      scheme
     end
 
     schemes

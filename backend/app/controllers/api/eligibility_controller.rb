@@ -11,10 +11,12 @@ module Api
         job = EligibilityCheckJob.perform_later(session_uuid, scheme_ids, profile)
         render json: { job_id: job.provider_job_id, status: "processing" }, status: :accepted
       else
+        session = Session.find_by!(uuid: session_uuid)
         service = EligibilityService.new
         results = scheme_ids.map do |scheme_id|
           scheme = Scheme.find(scheme_id)
           result = service.check(scheme, profile.symbolize_keys)
+          EligibilityResult.upsert_for(session, scheme, result)
           { scheme_id: scheme.id, scheme_name: scheme.name }.merge(result)
         end
         render json: { results: results }

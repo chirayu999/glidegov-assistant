@@ -13,6 +13,7 @@ gem "bootsnap", require: false
 gem "faraday", "~> 2.0"
 gem "faraday-multipart"
 gem "playwright-ruby-client", "~> 1.47"
+gem "websocket-client-simple"
 
 group :development, :test do
   gem "debug", platforms: %i[mri windows]

@@ -8,6 +8,7 @@ class EligibilityCheckJob < ApplicationJob
     results = scheme_ids.map do |scheme_id|
       scheme = Scheme.find(scheme_id)
       result = service.check(scheme, profile.symbolize_keys)
+      EligibilityResult.upsert_for(session, scheme, result)
       { scheme_id: scheme.id, scheme_name: scheme.name }.merge(result)
     end
 

@@ -3,6 +3,12 @@ class Session < ApplicationRecord
   has_many :conversation_turns, dependent: :destroy
   has_many :schemes, through: :form_progresses
 
+  has_many :eligibility_results, dependent: :destroy
+  has_many :schemes_with_eligibility, through: :eligibility_results, source: :scheme
+
+  has_many :session_discoveries, dependent: :destroy
+  has_many :discovered_schemes, through: :session_discoveries, source: :scheme
+
   validates :uuid, presence: true, uniqueness: true
   validates :locale, presence: true
   validates :status, presence: true, inclusion: { in: %w[active paused handoff] }

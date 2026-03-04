@@ -1,6 +1,8 @@
+import { useEffect } from "react";
 import { Mic } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
+import { useLiveSession } from "@/hooks/useLiveSession";
 
 const chips = [
   "Check Scholarship Eligibility",
@@ -10,6 +12,10 @@ const chips = [
 
 const Index = () => {
   const navigate = useNavigate();
+  const { ensureSession } = useLiveSession();
+  useEffect(() => {
+    ensureSession();
+  }, [ensureSession]);
 
   return (
     <div className="flex flex-col items-center justify-center min-h-[calc(100vh-4rem)] px-6 pt-4 pb-8">

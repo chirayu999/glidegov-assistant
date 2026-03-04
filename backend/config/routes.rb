@@ -4,6 +4,7 @@ Rails.application.routes.draw do
   namespace :api do
     resources :sessions, only: [:create, :show, :update] do
       resources :turns, only: [:index, :create], controller: "conversation_turns"
+      resources :schemes, only: [:index], controller: "session_schemes"
     end
 
     post "schemes/discover", to: "schemes#discover"

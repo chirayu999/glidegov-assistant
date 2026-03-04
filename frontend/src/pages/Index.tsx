@@ -2,7 +2,7 @@ import { useEffect } from "react";
 import { Mic } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { useLiveSession } from "@/hooks/useLiveSession";
+import { useSession } from "@/contexts/SessionContext";
 
 const chips = [
   "Check Scholarship Eligibility",
@@ -12,7 +12,7 @@ const chips = [
 
 const Index = () => {
   const navigate = useNavigate();
-  const { ensureSession } = useLiveSession();
+  const { ensureSession } = useSession();
   useEffect(() => {
     ensureSession();
   }, [ensureSession]);

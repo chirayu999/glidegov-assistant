@@ -1,24 +1,24 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useCallback } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
+import { useSession } from "@/contexts/SessionContext";
 import { useSessionChannel, type SessionChannelEvent } from "@/hooks/useSessionChannel";
 import { useDataVault } from "@/hooks/useDataVault";
-
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3001";
+import { startFormNavigation, submitFormData, submitOtp } from "@/lib/api";
 
 const AutoFiller = () => {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
+  const { sessionId: contextSessionId } = useSession();
   const { load: loadVault, merge: mergeVault } = useDataVault();
 
-  const sessionId = searchParams.get("session_id");
+  const sessionIdFromParams = searchParams.get("session_id");
   const schemeId = searchParams.get("scheme_id");
   const startUrl = searchParams.get("start_url") || "https://scholarships.gov.in";
-
-  const [sessionIdResolved, setSessionIdResolved] = useState<string | null>(sessionId);
+  const sessionIdResolved = sessionIdFromParams || contextSessionId;
   const [latestScreenshot, setLatestScreenshot] = useState<string | null>(null);
   const [message, setMessage] = useState<string>("");
   const [stepIndex, setStepIndex] = useState(0);
@@ -55,7 +55,9 @@ const AutoFiller = () => {
         } else if (event.data.reason === "review") {
           setState("review");
           setMessage("Form filling complete! Review your application.");
-          navigate("/review");
+          navigate("/review", {
+            state: { vaultData: loadVault(), schemeId: schemeId ?? undefined },
+          });
         } else if (event.data.reason === "captcha") {
           setMessage("Captcha detected. Please complete it on the portal.");
         }
@@ -68,43 +70,13 @@ const AutoFiller = () => {
 
   useSessionChannel(sessionIdResolved, handleEvent);
 
-  useEffect(() => {
-    if (!sessionId && sessionIdResolved === null) {
-      fetch(`${API_URL}/api/sessions`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ locale: "en" }),
-      })
-        .then((r) => r.json())
-        .then((data) => {
-          setSessionIdResolved(data.session_id);
-        })
-        .catch(() => setError("Failed to create session"));
-    } else if (sessionId) {
-      setSessionIdResolved(sessionId);
-    }
-  }, [sessionId, sessionIdResolved]);
-
   const startFormFilling = async () => {
     if (!sessionIdResolved || !schemeId) return;
     const piiData = loadVault();
     try {
-      const res = await fetch(`${API_URL}/api/form_navigation/start`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          session_id: sessionIdResolved,
-          scheme_id: schemeId,
-          start_url: startUrl,
-          pii_data: piiData,
-        }),
-      });
-      if (res.ok) {
-        setJobStarted(true);
-        setState("filling");
-      } else {
-        setError("Failed to start form filling");
-      }
+      await startFormNavigation(sessionIdResolved, schemeId, startUrl, piiData);
+      setJobStarted(true);
+      setState("filling");
     } catch {
       setError("Failed to start form filling");
     }
@@ -118,11 +90,7 @@ const AutoFiller = () => {
       if (val) data[f.key] = val;
     });
     try {
-      await fetch(`${API_URL}/api/form_navigation/submit_data`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ session_id: sessionIdResolved, data }),
-      });
+      await submitFormData(sessionIdResolved, data);
       if (Object.keys(data).length > 0) {
         mergeVault(data);
       }
@@ -133,14 +101,10 @@ const AutoFiller = () => {
     }
   };
 
-  const submitOtp = async () => {
+  const submitOtpHandler = async () => {
     if (!sessionIdResolved || !otpValue) return;
     try {
-      await fetch(`${API_URL}/api/form_navigation/submit_otp`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ session_id: sessionIdResolved, otp: otpValue }),
-      });
+      await submitOtp(sessionIdResolved, otpValue);
       setOtpValue("");
       setState("filling");
     } catch {
@@ -245,7 +209,7 @@ const AutoFiller = () => {
                 className="min-h-[52px] text-center text-lg tracking-widest"
                 maxLength={6}
               />
-              <Button className="min-h-[52px] px-6" onClick={submitOtp}>
+              <Button className="min-h-[52px] px-6" onClick={submitOtpHandler}>
                 Submit OTP
               </Button>
             </div>

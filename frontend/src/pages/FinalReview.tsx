@@ -1,19 +1,41 @@
-import { CheckCircle2, ChevronDown, ShieldCheck, ExternalLink } from "lucide-react";
+import { useLocation } from "react-router-dom";
+import { CheckCircle2, ShieldCheck, ExternalLink } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
+import { useDataVault, type VaultData } from "@/hooks/useDataVault";
 
-const filledData = [
-  { label: "Full Name", value: "Priya Sharma" },
-  { label: "Date of Birth", value: "15 March 2005" },
-  { label: "State", value: "Maharashtra" },
-  { label: "Category", value: "OBC" },
-  { label: "Annual Family Income", value: "₹2,00,000" },
-  { label: "Current Education", value: "B.Tech – Computer Science" },
-  { label: "Scheme Selected", value: "Post-Matric Scholarship" },
-  { label: "Institution", value: "VJTI Mumbai" },
+const VAULT_FIELD_LABELS: Array<{ key: keyof VaultData; label: string }> = [
+  { key: "full_name", label: "Full Name" },
+  { key: "date_of_birth", label: "Date of Birth" },
+  { key: "mobile", label: "Mobile Number" },
+  { key: "email", label: "Email Address" },
+  { key: "state", label: "State" },
+  { key: "category", label: "Category" },
+  { key: "annual_income", label: "Annual Family Income" },
+  { key: "address", label: "Full Address" },
+  { key: "pincode", label: "Pincode" },
+  { key: "education_level", label: "Education Level" },
+  { key: "institution_name", label: "Institution Name" },
 ];
 
+function buildFilledData(vault: VaultData, schemeId?: string): Array<{ label: string; value: string }> {
+  const rows = VAULT_FIELD_LABELS.map(({ key, label }) => ({
+    label,
+    value: vault[key] ?? "",
+  })).filter((row) => row.value !== "");
+  if (schemeId) {
+    rows.push({ label: "Scheme", value: `Scheme #${schemeId}` });
+  }
+  return rows;
+}
+
 const FinalReview = () => {
+  const location = useLocation();
+  const { load } = useDataVault();
+  const state = location.state as { vaultData?: VaultData; schemeId?: string } | null;
+  const vault = state?.vaultData ?? load();
+  const filledData = buildFilledData(vault, state?.schemeId);
+
   return (
     <div className="flex flex-col min-h-[calc(100vh-4rem)]">
       <div className="flex-1 px-4 py-6 max-w-lg mx-auto w-full">
@@ -23,7 +45,9 @@ const FinalReview = () => {
             <CheckCircle2 size={48} className="text-success" />
           </div>
           <h1 className="text-2xl font-bold text-foreground text-center">Application Ready!</h1>
-          <p className="text-muted-foreground text-center mt-1">Review the details GovGlide filled for you.</p>
+          <p className="text-muted-foreground text-center mt-1">
+            Review the details GovGlide filled for you.
+          </p>
         </div>
 
         {/* Data Summary */}
@@ -34,12 +58,23 @@ const FinalReview = () => {
             </AccordionTrigger>
             <AccordionContent className="px-5 pb-4">
               <div className="space-y-3">
-                {filledData.map((item, i) => (
-                  <div key={i} className="flex justify-between items-start py-2 border-b border-border last:border-0">
-                    <span className="text-sm text-muted-foreground">{item.label}</span>
-                    <span className="text-sm font-medium text-foreground text-right max-w-[60%]">{item.value}</span>
-                  </div>
-                ))}
+                {filledData.length === 0 ? (
+                  <p className="text-sm text-muted-foreground py-2">
+                    No stored data to display. Data is filled from your Data Vault when you apply.
+                  </p>
+                ) : (
+                  filledData.map((item, i) => (
+                    <div
+                      key={i}
+                      className="flex justify-between items-start py-2 border-b border-border last:border-0"
+                    >
+                      <span className="text-sm text-muted-foreground">{item.label}</span>
+                      <span className="text-sm font-medium text-foreground text-right max-w-[60%]">
+                        {item.value}
+                      </span>
+                    </div>
+                  ))
+                )}
               </div>
             </AccordionContent>
           </AccordionItem>

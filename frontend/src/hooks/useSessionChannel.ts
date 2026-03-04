@@ -7,7 +7,9 @@ export type SessionChannelEvent =
   | { type: "data_required"; data: { missing_fields: Array<{ key: string; label: string; type?: string; required?: boolean }>; message?: string; timestamp: string } }
   | { type: "handoff"; data: { reason: string; url?: string; timestamp: string } }
   | { type: "message"; data: { content: string; timestamp: string } }
-  | { type: "error"; data: { message: string; timestamp: string } };
+  | { type: "error"; data: { message: string; timestamp?: string } }
+  | { type: "discovery_done"; data: { schemes: unknown[]; timestamp: string } }
+  | { type: "eligibility_done"; data: { results: unknown[]; timestamp: string } };
 
 type EventHandler = (event: SessionChannelEvent) => void;
 

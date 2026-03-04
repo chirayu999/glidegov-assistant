@@ -1,11 +1,11 @@
 import { useRef, useState, useCallback, useEffect } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Bot, Mic, Camera } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { useLiveSession } from "@/hooks/useLiveSession";
+import { useSession } from "@/contexts/SessionContext";
 import { useLiveAgentChannel, type LiveAgentEvent } from "@/hooks/useLiveAgentChannel";
-
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3001";
+import { getTurns, createTurn } from "@/lib/api";
 
 const WaveVisualizer = () => (
   <div className="flex items-end justify-center gap-1 h-10 py-2">
@@ -21,11 +21,15 @@ const WaveVisualizer = () => (
 
 type Message = { from: "user" | "ai"; text: string };
 
+const DEFAULT_GREETING: Message = {
+  from: "ai",
+  text: "Hello! I'm GovGlide. Tell me what government scheme you need help with—scholarship, pension, or something else.",
+};
+
 const Chat = () => {
-  const { sessionId, loading: sessionLoading, error: sessionError, ensureSession } = useLiveSession();
-  const [messages, setMessages] = useState<Message[]>([
-    { from: "ai", text: "Hello! I'm GovGlide. Tell me what government scheme you need help with—scholarship, pension, or something else." },
-  ]);
+  const { sessionId, loading: sessionLoading, error: sessionError } = useSession();
+  const [messages, setMessages] = useState<Message[]>([]);
+  const hydratedRef = useRef(false);
   const [liveReady, setLiveReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isMicActive, setIsMicActive] = useState(false);
@@ -33,6 +37,28 @@ const Chat = () => {
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const processorRef = useRef<ScriptProcessorNode | null>(null);
+
+  const { data: turnsData } = useQuery({
+    queryKey: ["turns", sessionId ?? ""],
+    queryFn: () => getTurns(sessionId!),
+    enabled: !!sessionId,
+  });
+
+  useEffect(() => {
+    if (hydratedRef.current || !turnsData) return;
+    hydratedRef.current = true;
+    const turns = turnsData.turns ?? [];
+    if (turns.length === 0) {
+      setMessages([DEFAULT_GREETING]);
+    } else {
+      setMessages(
+        turns.map((t) => ({
+          from: t.role === "user" ? "user" : "ai",
+          text: t.content_text ?? "",
+        }))
+      );
+    }
+  }, [turnsData]);
 
   const playAudioBase64 = useCallback((base64: string) => {
     try {
@@ -55,14 +81,13 @@ const Chat = () => {
     }
   }, []);
 
-  const persistTurn = useCallback((role: "user" | "assistant", contentText: string) => {
-    if (!sessionId) return;
-    fetch(`${API_URL}/api/sessions/${sessionId}/turns`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ turn: { role, content_text: contentText, content_type: "text" } }),
-    }).catch(() => {});
-  }, [sessionId]);
+  const persistTurn = useCallback(
+    (role: "user" | "assistant", contentText: string) => {
+      if (!sessionId) return;
+      createTurn(sessionId, { role, content_text: contentText }).catch(() => {});
+    },
+    [sessionId]
+  );
 
   const handleLiveEvent = useCallback((event: LiveAgentEvent) => {
     if (event.type === "live_ready") {
@@ -93,12 +118,6 @@ const Chat = () => {
   }, [persistTurn, playAudioBase64]);
 
   const { connected, sendAudio } = useLiveAgentChannel(sessionId, handleLiveEvent);
-
-  useEffect(() => {
-    if (sessionId && !sessionLoading) {
-      ensureSession();
-    }
-  }, [sessionId, sessionLoading, ensureSession]);
 
   useEffect(() => {
     scrollRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -161,7 +180,7 @@ const Chat = () => {
               {displayError}
             </div>
           )}
-          {messages.map((msg, i) => (
+          {(messages.length === 0 ? [DEFAULT_GREETING] : messages).map((msg, i) => (
             <div
               key={i}
               className={`flex gap-3 animate-fade-in ${msg.from === "user" ? "flex-row-reverse" : ""}`}

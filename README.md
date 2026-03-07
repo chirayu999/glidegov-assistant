@@ -104,6 +104,7 @@ flowchart TB
 1. **Create `backend/.env`** for the backend container (API keys, etc.). For full functionality, include:
   - `GEMINI_API_KEY` – required for eligibility, form navigation (vision), and Live voice agent.
   - `GOOGLE_SEARCH_API_KEY` and `GOOGLE_SEARCH_CX` – required for scheme discovery (Google Custom Search).
+  - See [docs/GCP_SETUP.md](docs/GCP_SETUP.md) for how to create these API keys on GCP.
 2. From the **glidegov-assistant** directory:
   ```bash
    docker compose up

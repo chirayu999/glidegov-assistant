@@ -1,4 +1,4 @@
-# GovGlide / GlideGov Assistant
+# GlideGov Assistant
 
 Monorepo for the GovGlide government scheme assistant.
 

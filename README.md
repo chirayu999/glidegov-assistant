@@ -1,6 +1,6 @@
 # GlideGov Assistant
 
-Monorepo for the GovGlide government scheme assistant.
+Monorepo for the GlideGove government scheme assistant.
 
 ## Architecture
 

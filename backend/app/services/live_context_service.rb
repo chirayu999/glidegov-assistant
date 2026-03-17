@@ -66,8 +66,7 @@ class LiveContextService
                 },
                 profile: {
                   type: "object",
-                  description: "User profile: annual_income, education_level, category (SC/ST/OBC/General), state, etc.",
-                  additionalProperties: { type: "string" }
+                  description: "User profile: annual_income, education_level, category (SC/ST/OBC/General), state, etc. Pass key-value pairs as strings."
                 }
               },
               required: %w[session_id scheme_ids profile]

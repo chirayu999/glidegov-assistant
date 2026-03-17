@@ -1,6 +1,8 @@
 #!/bin/bash
 set -e
 
+bundle install
+
 echo "Waiting for MySQL at ${DB_HOST:-mysql}:3306..."
 for i in $(seq 1 60); do
   if bundle exec ruby -e "

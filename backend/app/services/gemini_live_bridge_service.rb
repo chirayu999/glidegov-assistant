@@ -8,7 +8,7 @@ require "json"
 # (discover_schemes, check_eligibility) and sends tool results back.
 class GeminiLiveBridgeService
   LIVE_WS_URL = "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent".freeze
-  DEFAULT_MODEL = "gemini-2.0-flash-exp".freeze
+  DEFAULT_MODEL = "gemini-2.5-flash-native-audio-preview-12-2025".freeze
 
   def initialize(session, broadcast_callback:)
     @session = session
@@ -30,6 +30,9 @@ class GeminiLiveBridgeService
     payload = LiveContextService.new(@session).build_setup_payload
     setup_message = build_setup_message(payload)
 
+    # Capture callback in a local so ws.on blocks (run with instance_exec by the client) can use it
+    broadcast = @broadcast
+    bridge = self
     @thread = Thread.new do
       begin
         WebSocket::Client::Simple.connect(url) do |ws|
@@ -37,25 +40,26 @@ class GeminiLiveBridgeService
 
           ws.on :open do
             ws.send(setup_message)
-            @broadcast.call({ "type" => "live_ready", "data" => {} })
           end
 
           ws.on :message do |event|
-            handle_server_message(event.data)
+            bridge.send(:handle_server_message, event.data)
           end
 
           ws.on :error do |e|
             Rails.logger.error("GeminiLiveBridge error: #{e.message}")
-            @broadcast.call({ "type" => "error", "data" => { "message" => e.message } })
+            broadcast.call({ "type" => "error", "data" => { "message" => e.message } })
           end
 
           ws.on :close do |e|
-            Rails.logger.info("GeminiLiveBridge closed: #{e.code} #{e.reason}")
+            code = e.respond_to?(:code) ? e.code : nil
+            reason = e.respond_to?(:reason) ? e.reason : nil
+            Rails.logger.info("GeminiLiveBridge closed: #{code} #{reason}")
           end
         end
       rescue => e
         Rails.logger.error("GeminiLiveBridge failed: #{e.message}\n#{e.backtrace.first(5).join("\n")}")
-        @broadcast.call({ "type" => "error", "data" => { "message" => e.message } })
+        broadcast.call({ "type" => "error", "data" => { "message" => e.message } })
       end
     end
   end
@@ -65,15 +69,13 @@ class GeminiLiveBridgeService
 
     msg = {
       realtimeInput: {
-        mediaChunks: [
-          { mimeType: "audio/pcm", data: base64_audio }
-        ]
+        audio: { mimeType: "audio/pcm;rate=16000", data: base64_audio }
       }
     }
     @ws.send(msg.to_json)
   rescue => e
     Rails.logger.error("GeminiLiveBridge send_audio error: #{e.message}")
-        @broadcast.call({ "type" => "error", "data" => { "message" => "Failed to send audio" } })
+    @broadcast&.call({ "type" => "error", "data" => { "message" => "Failed to send audio" } })
   end
 
   def close
@@ -86,20 +88,16 @@ class GeminiLiveBridgeService
   private
 
   def build_setup_message(payload)
-    tools = (payload[:tools] || []).map { |t| deep_camelize_keys(t) }
     {
       "setup" => {
-        "model" => DEFAULT_MODEL,
+        "model" => "models/#{DEFAULT_MODEL}",
         "generationConfig" => {
-          "responseModalities" => ["AUDIO", "TEXT"],
-          "speechConfig" => {
-            "voiceConfig" => {
-              "prebuiltVoiceConfig" => { "voiceName" => "Puck" }
-            }
-          }
+          "responseModalities" => ["AUDIO"]
         },
-        "systemInstruction" => payload[:system_instruction],
-        "tools" => tools
+        "systemInstruction" => { "parts" => [ { "text" => payload[:system_instruction].to_s } ] },
+        # NOTE: tools temporarily disabled to avoid Live API \"invalid argument\" on setup;
+        # when re-enabling, ensure function_declarations.parameters schema matches docs exactly.
+        # "tools" => tools
       }
     }.to_json
   end
@@ -107,7 +105,16 @@ class GeminiLiveBridgeService
   def deep_camelize_keys(obj)
     case obj
     when Hash
-      obj.transform_keys { |k| k.to_s.camelize(:lower).presence || k }.transform_values { |v| deep_camelize_keys(v) }
+      obj.each_with_object({}) do |(k, v), h|
+        new_key = k.to_s.camelize(:lower).presence || k
+        new_value =
+          if k.to_s == "required" && v.is_a?(Array)
+            v.map { |name| name.to_s.camelize(:lower) }
+          else
+            deep_camelize_keys(v)
+          end
+        h[new_key] = new_value
+      end
     when Array
       obj.map { |e| deep_camelize_keys(e) }
     else
@@ -116,14 +123,29 @@ class GeminiLiveBridgeService
   end
 
   def handle_server_message(raw)
-    data = JSON.parse(raw)
-    handle_server_message_parsed(data, raw)
-  rescue JSON::ParserError
-    @broadcast.call(raw.is_a?(String) ? raw : raw.to_json)
+    Rails.logger.info("LiveAgent: got response from Gemini")
+    if raw.is_a?(String) && !(raw.lstrip.start_with?("{") || raw.lstrip.start_with?("["))
+      # Plain-text error from Gemini (not JSON)
+      Rails.logger.warn("GeminiLiveBridge non-JSON message: #{raw.to_s.strip}")
+      @broadcast.call({ "type" => "error", "data" => { "message" => raw.to_s.strip } })
+      return
+    end
+
+    data = raw.is_a?(Hash) ? raw : JSON.parse(raw.to_s)
+    Rails.logger.info("LiveAgent: Gemini message keys=#{data.is_a?(Hash) ? data.keys : []}")
+    raw_for_broadcast = raw.is_a?(String) ? raw : data.to_json
+    handle_server_message_parsed(data, raw_for_broadcast)
+  rescue JSON::ParserError => e
+    Rails.logger.warn("GeminiLiveBridge JSON parse error: #{e.message}")
+    @broadcast.call({ "type" => "error", "data" => { "message" => raw.to_s.strip.presence || e.message } })
   end
 
   def handle_server_message_parsed(data, raw)
-    server_content = data["serverContent"]
+    if data.key?("setupComplete") || data.key?("setup_complete")
+      @broadcast.call({ "type" => "live_ready", "data" => {} })
+    end
+
+    server_content = data["serverContent"] || data["server_content"]
     if server_content
       interrupt_id = server_content["interruptId"]
       if server_content["modelTurn"] && server_content["modelTurn"]["parts"]
@@ -137,6 +159,15 @@ class GeminiLiveBridgeService
         end
       end
     end
+
+    # Top-level toolCall (message type is toolCall, not serverContent)
+    tool_call = data["toolCall"] || data["tool_call"]
+    if tool_call && tool_call["functionCalls"]
+      tool_call["functionCalls"].each do |fc|
+        handle_tool_call(fc, nil)
+      end
+    end
+
     @broadcast.call(raw)
   end
 
@@ -155,10 +186,11 @@ class GeminiLiveBridgeService
         { error: "Unknown tool: #{name}" }
       end
 
-    send_tool_response(interrupt_id, name, result)
+    function_call_id = function_call["id"]
+    send_tool_response(interrupt_id, function_call_id, name, result)
   rescue => e
     Rails.logger.error("GeminiLiveBridge tool #{name} error: #{e.message}")
-    send_tool_response(interrupt_id, name, { error: e.message })
+    send_tool_response(interrupt_id, function_call["id"], name, { error: e.message })
   end
 
   def run_discover_schemes(args)
@@ -188,17 +220,16 @@ class GeminiLiveBridgeService
     { results: results }
   end
 
-  def send_tool_response(interrupt_id, name, result)
-    return unless @ws && interrupt_id
+  def send_tool_response(interrupt_id, function_call_id, name, result)
+    return unless @ws
 
-    msg = {
-      toolResponse: {
-        interruptId: interrupt_id,
-        functionResponses: [
-          { name: name, response: result }
-        ]
-      }
-    }
+    response_entry = { name: name, response: result }
+    response_entry[:id] = function_call_id if function_call_id.present?
+
+    tool_response = { functionResponses: [ response_entry ] }
+    tool_response[:interruptId] = interrupt_id if interrupt_id.present?
+
+    msg = { toolResponse: tool_response }
     @ws.send(msg.to_json)
   end
 end

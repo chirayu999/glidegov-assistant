@@ -1,6 +1,6 @@
 import { useRef, useState, useCallback, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Bot, Mic, Camera } from "lucide-react";
+import { Bot, Mic } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useSession } from "@/contexts/SessionContext";
@@ -33,10 +33,14 @@ const Chat = () => {
   const [liveReady, setLiveReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isMicActive, setIsMicActive] = useState(false);
+  const [isWaitingForResponse, setIsWaitingForResponse] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const processorRef = useRef<ScriptProcessorNode | null>(null);
+  const outAudioContextRef = useRef<AudioContext | null>(null);
+  const outWorkletNodeRef = useRef<AudioWorkletNode | null>(null);
+  const outWorkletReadyRef = useRef<Promise<void> | null>(null);
 
   const { data: turnsData } = useQuery({
     queryKey: ["turns", sessionId ?? ""],
@@ -60,26 +64,60 @@ const Chat = () => {
     }
   }, [turnsData]);
 
-  const playAudioBase64 = useCallback((base64: string) => {
-    try {
-      const binary = atob(base64);
-      const bytes = new Uint8Array(binary.length);
-      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-      const ctx = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)({ sampleRate: 24000 });
-      const buffer = ctx.createBuffer(1, bytes.length / 2, 24000);
-      const channel = buffer.getChannelData(0);
-      const view = new DataView(bytes.buffer);
-      for (let i = 0; i < channel.length; i++) {
-        channel[i] = view.getInt16(i * 2, true) / 32768;
-      }
-      const source = ctx.createBufferSource();
-      source.buffer = buffer;
-      source.connect(ctx.destination);
-      source.start();
-    } catch (e) {
-      console.warn("Play audio failed", e);
-    }
+  const ensureOutputWorklet = useCallback(async () => {
+    if (outWorkletNodeRef.current) return;
+    if (outWorkletReadyRef.current) return outWorkletReadyRef.current;
+
+    outWorkletReadyRef.current = (async () => {
+      const Ctx =
+        window.AudioContext ||
+        (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+      const ctx = new Ctx({ sampleRate: 24000 });
+      outAudioContextRef.current = ctx;
+      await ctx.audioWorklet.addModule(new URL("../audio/pcm_stream_player.worklet.ts", import.meta.url));
+      const node = new AudioWorkletNode(ctx, "pcm-stream-player", {
+        numberOfInputs: 0,
+        numberOfOutputs: 1,
+        outputChannelCount: [1],
+      });
+      node.connect(ctx.destination);
+      outWorkletNodeRef.current = node;
+    })();
+
+    return outWorkletReadyRef.current;
   }, []);
+
+  const resetOutputPlayback = useCallback(() => {
+    // Reset buffered audio to avoid “mixing” when the user barges in.
+    outWorkletNodeRef.current?.port.postMessage({ type: "reset" });
+  }, []);
+
+  const playAudioBase64 = useCallback(
+    async (base64: string) => {
+      try {
+        await ensureOutputWorklet();
+        const node = outWorkletNodeRef.current;
+        const ctx = outAudioContextRef.current;
+        if (!node || !ctx) return;
+
+        if (ctx.state === "suspended") {
+          // Resume on user gesture paths; safe to call multiple times.
+          await ctx.resume().catch(() => {});
+        }
+
+        const binary = atob(base64);
+        const bytes = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+
+        // Transfer Int16Array buffer to worklet for minimal overhead.
+        const pcm16 = new Int16Array(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength));
+        node.port.postMessage({ type: "pcm16", pcm: pcm16.buffer }, [pcm16.buffer]);
+      } catch (e) {
+        console.warn("Play audio failed", e);
+      }
+    },
+    [ensureOutputWorklet]
+  );
 
   const persistTurn = useCallback(
     (role: "user" | "assistant", contentText: string) => {
@@ -95,24 +133,41 @@ const Chat = () => {
       setError(null);
     } else if (event.type === "error") {
       setError(event.data.message);
+      setIsWaitingForResponse(false);
     } else if (event.type === "live") {
       try {
-        const parsed = JSON.parse(event.data);
-        const content = parsed?.serverContent;
-        if (content?.modelTurn?.parts) {
-          for (const part of content.modelTurn.parts) {
-            if (part.text?.text) {
-              const text = part.text.text;
+        const raw = event.data;
+        const parsed =
+          typeof raw === "string" ? JSON.parse(raw) : (raw as Record<string, unknown>);
+        const hasTopLevelToolCall = !!(parsed?.toolCall ?? parsed?.tool_call);
+        if (hasTopLevelToolCall) setIsWaitingForResponse(false);
+
+        const content = (parsed?.serverContent ?? parsed?.server_content) as Record<string, unknown> | undefined;
+        if (import.meta.env.DEV) {
+          console.log("[LiveAgent] received:", Object.keys(parsed), content ? Object.keys(content) : "no serverContent");
+        }
+        if (!content) return;
+
+        const modelTurn = (content.modelTurn ?? content.model_turn) as { parts?: Array<{ text?: { text?: string }; inlineData?: { data?: string }; inline_data?: { data?: string } }> } | undefined;
+        const hasToolCall = !!(content.toolCall ?? content.tool_call);
+        if (modelTurn?.parts?.length || hasToolCall) {
+          setIsWaitingForResponse(false);
+        }
+
+        // Model turn: text and audio in parts (turnComplete is boolean per API; audio only in modelTurn.parts)
+        if (modelTurn?.parts) {
+          for (const part of modelTurn.parts) {
+            const text = part.text?.text;
+            if (text) {
               setMessages((prev) => [...prev, { from: "ai", text }]);
               persistTurn("assistant", text);
             }
+            const audioB64 = part.inlineData?.data ?? (part.inline_data as { data?: string } | undefined)?.data;
+            if (audioB64) playAudioBase64(audioB64);
           }
         }
-        if (content?.turnComplete?.audio) {
-          playAudioBase64(content.turnComplete.audio);
-        }
-      } catch {
-        // Not JSON or no transcript; ignore or could try to play as raw audio
+      } catch (e) {
+        if (import.meta.env.DEV) console.warn("[LiveAgent] parse error", e);
       }
     }
   }, [persistTurn, playAudioBase64]);
@@ -121,10 +176,12 @@ const Chat = () => {
 
   useEffect(() => {
     scrollRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+  }, [messages, isWaitingForResponse]);
 
   const startMic = useCallback(() => {
     if (!sessionId || !connected || !liveReady) return;
+    // Barge-in: clear any queued output so it doesn't overlap with the user speaking.
+    resetOutputPlayback();
     navigator.mediaDevices.getUserMedia({ audio: true }).then((stream) => {
       mediaStreamRef.current = stream;
       const ctx = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)({ sampleRate: 16000 });
@@ -150,7 +207,7 @@ const Chat = () => {
       setError("Microphone access denied");
       console.error(e);
     });
-  }, [sessionId, connected, liveReady, sendAudio]);
+  }, [sessionId, connected, liveReady, sendAudio, resetOutputPlayback]);
 
   const stopMic = useCallback(() => {
     mediaStreamRef.current?.getTracks().forEach((t) => t.stop());
@@ -160,6 +217,17 @@ const Chat = () => {
     audioContextRef.current?.close();
     audioContextRef.current = null;
     setIsMicActive(false);
+    setIsWaitingForResponse(true);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      outWorkletNodeRef.current?.disconnect();
+      outWorkletNodeRef.current = null;
+      outAudioContextRef.current?.close().catch(() => {});
+      outAudioContextRef.current = null;
+      outWorkletReadyRef.current = null;
+    };
   }, []);
 
   const displayError = sessionError ?? error;
@@ -203,11 +271,28 @@ const Chat = () => {
               </div>
             </div>
           ))}
+          {isWaitingForResponse && (
+            <div className="flex gap-3 animate-fade-in">
+              <Avatar className="w-10 h-10 flex-shrink-0 bg-primary/10">
+                <AvatarFallback className="bg-primary/10 text-primary">
+                  <Bot size={22} />
+                </AvatarFallback>
+              </Avatar>
+              <div className="rounded-2xl px-5 py-3 text-base text-muted-foreground bg-card border border-border shadow-sm flex items-center gap-1">
+                <span>GovGlide is thinking</span>
+                <span className="flex gap-0.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground animate-pulse" style={{ animationDelay: "0ms" }} />
+                  <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground animate-pulse" style={{ animationDelay: "200ms" }} />
+                  <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground animate-pulse" style={{ animationDelay: "400ms" }} />
+                </span>
+              </div>
+            </div>
+          )}
           <div ref={scrollRef} />
         </div>
       </ScrollArea>
 
-      <div className="flex-shrink-0 flex items-center justify-center gap-6 py-5 bg-card border-t border-border">
+      <div className="flex-shrink-0 flex items-center justify-center py-5 bg-card border-t border-border">
         <button
           onClick={isMicActive ? stopMic : startMic}
           disabled={!sessionId || !connected || !liveReady}
@@ -218,13 +303,6 @@ const Chat = () => {
         >
           <Mic size={32} />
           <span className="text-xs mt-1 font-medium">{isMicActive ? "Stop" : "Talk"}</span>
-        </button>
-        <button
-          className="flex flex-col items-center justify-center w-20 h-20 rounded-full bg-secondary text-secondary-foreground shadow-lg transition-transform active:scale-95 hover:brightness-110 focus:outline-none focus:ring-4 focus:ring-ring"
-          aria-label="Scan Document"
-        >
-          <Camera size={32} />
-          <span className="text-xs mt-1 font-medium">Scan</span>
         </button>
       </div>
     </div>

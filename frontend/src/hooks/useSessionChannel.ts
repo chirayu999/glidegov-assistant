@@ -13,9 +13,13 @@ export type SessionChannelEvent =
 
 type EventHandler = (event: SessionChannelEvent) => void;
 
-function getCableUrl(): string {
+function getCableUrl(sessionId: string | null): string {
   const apiUrl = import.meta.env.VITE_API_URL || "http://localhost:3001";
-  return apiUrl.replace(/^http/, "ws") + "/cable";
+  const base = apiUrl.replace(/^http/, "ws") + "/cable";
+  if (sessionId) {
+    return `${base}?session_id=${encodeURIComponent(sessionId)}`;
+  }
+  return base;
 }
 
 export function useSessionChannel(sessionId: string | null, onEvent: EventHandler) {
@@ -31,7 +35,7 @@ export function useSessionChannel(sessionId: string | null, onEvent: EventHandle
       return;
     }
 
-    const consumer = createConsumer(getCableUrl());
+    const consumer = createConsumer(getCableUrl(sessionId));
     consumerRef.current = consumer;
 
     const subscription = consumer.subscriptions.create(

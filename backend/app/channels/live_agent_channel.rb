@@ -39,6 +39,7 @@ class LiveAgentChannel < ApplicationCable::Channel
     payload = data.is_a?(Hash) ? data : {}
     base64_audio = payload["data"] || payload["audio"]
     if base64_audio.present?
+      Rails.logger.info("LiveAgent: got audio from client")
       @bridge.send_audio(base64_audio)
     end
   end

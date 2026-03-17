@@ -92,6 +92,7 @@ GEM
     erb (6.0.2)
     error_highlight (0.7.1)
     erubi (1.13.1)
+    event_emitter (0.2.6)
     faraday (2.14.1)
       faraday-net_http (>= 2.0, < 3.5)
       json
@@ -132,6 +133,7 @@ GEM
       prism (~> 1.5)
     msgpack (1.8.0)
     multipart-post (2.4.1)
+    mutex_m (0.3.0)
     mysql2 (0.5.7)
       bigdecimal
     net-http (0.9.1)
@@ -230,6 +232,12 @@ GEM
       concurrent-ruby (~> 1.0)
     uri (1.1.1)
     useragent (0.16.11)
+    websocket (1.2.11)
+    websocket-client-simple (0.9.0)
+      base64
+      event_emitter
+      mutex_m
+      websocket
     websocket-driver (0.8.0)
       base64
       websocket-extensions (>= 0.1.0)
@@ -253,6 +261,7 @@ DEPENDENCIES
   rails (~> 7.1)
   redis (>= 4.0.1)
   sidekiq (~> 7.0)
+  websocket-client-simple
 
 RUBY VERSION
    ruby 3.2.10p266
